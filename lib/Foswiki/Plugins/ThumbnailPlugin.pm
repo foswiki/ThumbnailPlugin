@@ -1,9 +1,9 @@
-# Plugin for TWiki Enterprise Collaboration Platform, http://TWiki.org/
+# Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
 # Plugin API:
 # Copyright (C) 2000-2003 Andrea Sterbini, a.sterbini@flashnet.it
 # Copyright (C) 2001-2006 Peter Thoeny, peter@thoeny.org
-# and TWiki Contributors. All Rights Reserved. TWiki Contributors
+# and Foswiki Contributors. All Rights Reserved. Foswiki Contributors
 # are listed in the AUTHORS file in the root of this distribution.
 # NOTE: Please extend that file, not this notice.
 #
@@ -20,7 +20,7 @@
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #
-# For licensing info read LICENSE file in the TWiki root.
+# For licensing info read LICENSE file in the Foswiki root.
 
 =pod
 
@@ -43,13 +43,13 @@ use strict;
 require Foswiki::Func;    # The plugins API
 require Foswiki::Plugins; # For the API version
 
-# $VERSION is referred to by TWiki, and is the only global variable that
+# $VERSION is referred to by Foswiki, and is the only global variable that
 # *must* exist in this package.
 use vars qw( $VERSION $RELEASE $SHORTDESCRIPTION $debug $pluginName $NO_PREFS_IN_TOPIC );
 
 $VERSION = '$Rev: 15942 (11 Aug 2008) $';
 
-$RELEASE = 'ThumbnailPlugin 1.0';
+$RELEASE = 'ThumbnailPlugin 1.001';
 
 $SHORTDESCRIPTION = 'Maintains thumbnails of attachements';
 
@@ -98,14 +98,14 @@ sub _THUMBNAIL {
 
     my $imgtypes;
     if( $imgtypes = $params->{imgtypes} ) {
-	return "THUMBNAIL: Improper image type" unless( $imgtypes =~ m/^[\w|]+$/ );
+        return "THUMBNAIL: Improper image type" unless( $imgtypes =~ m/^[\w|]+$/ );
     } else {
-	$imgtypes = "jpg|JPG|gif|GIF|png|PNG";
+        $imgtypes = "jpg|JPG|gif|GIF|png|PNG";
     }
     my $variant = $params->{variant};
     unless( $params->{variant} ) {
-	my @prefs = split( /[, ]+/, Foswiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_SIZE", $theWeb ));
-	$variant = $prefs[0] || 150;
+        my @prefs = split( /[, ]+/, Foswiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_SIZE", $theWeb ));
+        $variant = $prefs[0] || 150;
     }
 
     return "THUMBNAIL: $attName is not a recognized image type" unless( $attName =~ m/^(.*)\.($imgtypes)$/ );
@@ -160,90 +160,93 @@ sub afterAttachmentSaveHandler {
     ###   my( $attrHashRef, $topic, $web ) = @_;
 #    Foswiki::Func::writeDebug( "- ${pluginName}::afterAttachmentSaveHandler( $_[2].$_[1] )" ) if $debug;
 
-      my $attr = $_[0];
-      my $topic = $_[1];
-      my $web = $_[2];
-      my $error = $_[3];
+    my $attr = $_[0];
+    my $topic = $_[1];
+    my $web = $_[2];
+    my $error = $_[3];
 
-      my $attName = $attr->{attachment};
+    my $attName = $attr->{attachment};
 
-      return unless( $attName =~ m/^(.*)\.(jpg|JPG|gif|GIF|png|PNG)$/ );
-      my $name = $1;
-      my $type = $2;
-      return if( $error || $attName =~ m/_thumbnail\....$/ );
+    return unless( $attName =~ m/^(.*)\.(jpg|JPG|gif|GIF|png|PNG)$/ );
+    my $name = $1;
+    my $type = $2;
+    return if( $error || $attName =~ m/_thumbnail\....$/ );
 
-      return unless( Foswiki::Func::getPreferencesFlag( "THUMBNAILPLUGIN_ENABLE", $web ) );
+    return unless( Foswiki::Func::getPreferencesFlag( "THUMBNAILPLUGIN_ENABLE", $web ) );
 
-      my $sizelist = Foswiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_SIZE", $web ) || 150;
+    my $sizelist = Foswiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_SIZE", $web ) || 150;
 
-      eval {
-	  require GD;
-	  require Image::MetaData::JPEG;
-      };die "$pluginName: cant load required modules $@" if( $@ );
+    eval {
+        require GD;
+        require Image::MetaData::JPEG;
+    };
+    die "$pluginName: cant load required modules $@" if( $@ );
 
-      # This user just created the attachment, so I'm not bothering to check for access control errors
+    # This user just created the attachment, so I'm not bothering to check for access control errors
 
-      my $data = Foswiki::Func::readAttachment( $web, $topic, $attName );
+    my $data = Foswiki::Func::readAttachment( $web, $topic, $attName );
 
-      foreach my $size (split( /[ ,]+/, $sizelist)) {
-	  eval {
-	      $data = resize( $data, $size, lc $type );
-	  }; if( $@ ) {
-	      die "${pluginName}: Unable to resize $attName for thumbnail: $@\n";
-	  }
-	  
-	  my $err;
-	  
+    foreach my $size (split( /[ ,]+/, $sizelist)) {
+        eval {
+        $data = resize( $data, $size, lc $type );
+        };
+        if( $@ ) {
+            die "${pluginName}: Unable to resize $attName for thumbnail: $@\n";
+        }
+    
+        my $err;
+
 =for workingapi
 
-          None of these methods will work since addRevisionFromStream is a private method, and
-	  there's a deadlock recursively calling saveAttachment due to the topic lock's being held.
-
-	  use File::Temp;
-	  my( $fh, $tmpfile ) = File::Temp::tempfile();
-	  binmode $fh;
-	  print $fh $data or die "Can't write $tmpfile: $!\n";
-	  rewind $fh
-	      
-	      try {
-		  $handler->addRevisionFromStream( $fh, $attr->{comment} . "Thumbnail", "WikiAdministrator" );
-	      } catch Error::Simple with {
-		  $err = shift;
-	      };
-	  
-	  close $fh or die "Can't close $tmpfile: $!\n";
-#      unlink( $tmpfile ) if( $tmpfile && -e $tmpfile );
-	  
-	  try {
-	      $handler->addRevisionFromStream( $fh, $attr->{comment} . "Thumbnail", "WikiAdministrator" );
-	  } catch Error::Simple with {
-	      $err = shift;
-	  };
-	  
-	  my $err = 
-	      Foswiki::Func::saveAttachment( $web, topic, "${name}_thumbnail_$size.$type", { hide=>($a->{unref}? 0 : 1),
-											   comment=>$attr->{comment},
-											   file=>$file,
-											   
-										       } );
+        None of these methods will work since addRevisionFromStream is a private method, and
+        there's a deadlock recursively calling saveAttachment due to the topic lock's being held.
+    
+        use File::Temp;
+        my( $fh, $tmpfile ) = File::Temp::tempfile();
+        binmode $fh;
+        print $fh $data or die "Can't write $tmpfile: $!\n";
+        rewind $fh
+        
+        try {
+            $handler->addRevisionFromStream( $fh, $attr->{comment} . "Thumbnail", "WikiAdministrator" );
+        } catch Error::Simple with {
+            $err = shift;
+        };
+    
+        close $fh or die "Can't close $tmpfile: $!\n";
+        unlink( $tmpfile ) if( $tmpfile && -e $tmpfile );
+    
+        try {
+            $handler->addRevisionFromStream( $fh, $attr->{comment} . "Thumbnail", "WikiAdministrator" );
+        } catch Error::Simple with {
+            $err = shift;
+        };
+    
+        my $err = 
+            Foswiki::Func::saveAttachment( $web, topic, "${name}_thumbnail_$size.$type",
+                                             { hide=>($a->{unref}? 0 : 1),
+                                               comment=>$attr->{comment},
+                                               file=>$file,
+                                              }
+                                         );
 =cut
-	      
-	  # Break the object and storage abstraction rules and write directly to
-          # the attachment storage area.  You probably want autoattach off, as these
-          # will otherwise show up on the topic's attachment list - as non-hidden.
 
-          my $fh;
-	  my $fname = Foswiki::Func::getPubDir() . "/$web/$topic/${name}_thumbnail_$size.$type";
-
-	  open( $fh, ">", $fname ) or die "Can't open $fname for write: $!\n";
-	  binmode $fh;
-	  print $fh $data or die "Can't write $fname: $!\n";
-            
-	  close $fh or die "Can't close $fname: $!\n";
-      }
+        # Break the object and storage abstraction rules and write directly to
+        # the attachment storage area.  You probably want autoattach off, as these
+        # will otherwise show up on the topic's attachment list - as non-hidden.
+    
+        my $fh;
+        my $fname = Foswiki::Func::getPubDir() . "/$web/$topic/${name}_thumbnail_$size.$type";
+    
+        open( $fh, ">", $fname ) or die "Can't open $fname for write: $!\n";
+        binmode $fh;
+        print $fh $data or die "Can't write $fname: $!\n";
+          
+        close $fh or die "Can't close $fname: $!\n";
+    }
 
       return;      
-  }
+}
 
 =head2 resize( $file, $size )
 
@@ -256,7 +259,7 @@ sub resize {
     my $size = shift;
     my $type = shift;
 
-    my ($image, $hint) = load( $file );
+    my ( $image, $hint ) = load( $file );
 
     my ( $width, $height ) = $image->getBounds();
 
@@ -314,36 +317,36 @@ sub load {
     my $snum = $jpg->retrieve_app1_Exif_segment(-1);
     for( my $i = 0; $i < $snum; $i++) {
    
-	my $seg = $jpg->retrieve_app1_Exif_segment($i);
-	my $imgdat = $seg->get_Exif_data('IMAGE_DATA', 'TEXTUAL');
+        my $seg = $jpg->retrieve_app1_Exif_segment($i);
+        my $imgdat = $seg->get_Exif_data('IMAGE_DATA', 'TEXTUAL');
   
-	my $o = $imgdat->{'Orientation'};
-	next unless $o;
+        my $o = $imgdat->{'Orientation'};
+        next unless $o;
 
-	my $orient = @$o[0];
-	if( $orient == 1 ) { # Top, Left-Hand
-	    # Normal orientation
-	    return ($image, 0);
-	} elsif( $orient == 2 ) { # Top, Right-Hand
-	    $image->flipHorizontal();
-	    return ($image, 1);
-	} elsif( $orient == 3 ) { # Bottom, Right-Hand
-	    $image->rotate180();
-	    return ($image, 1);
-	} elsif( $orient == 4 ) { # Bottom, Left-Hand
-	    $image->flipVertical();
-	    return ($image, 1);
-	} elsif( $orient == 5 ) { # Left-Hand, Top
-	    $image->flipVertical();
-	    return ($image->copyRotate90(), 1);
-	} elsif( $orient == 6 ) { # Right-Hand, Top
-	    return ($image->copyRotate90(), 1);
-	} elsif( $orient == 7 ) { # Right-Hand, Bottom
-	    $image->flipHorizontal();
-	    return ($image->copyRotate90(), 1);
-	} elsif( $orient == 8 ) { # Left-Hand, Bottom
-	    return ($image->copyRotate270(), 1);
-	}
+        my $orient = @$o[0];
+        if( $orient == 1 ) { # Top, Left-Hand
+            # Normal orientation
+            return ($image, 0);
+        } elsif( $orient == 2 ) { # Top, Right-Hand
+            $image->flipHorizontal();
+            return ($image, 1);
+        } elsif( $orient == 3 ) { # Bottom, Right-Hand
+            $image->rotate180();
+            return ($image, 1);
+        } elsif( $orient == 4 ) { # Bottom, Left-Hand
+            $image->flipVertical();
+            return ($image, 1);
+        } elsif( $orient == 5 ) { # Left-Hand, Top
+            $image->flipVertical();
+            return ($image->copyRotate90(), 1);
+        } elsif( $orient == 6 ) { # Right-Hand, Top
+            return ($image->copyRotate90(), 1);
+        } elsif( $orient == 7 ) { # Right-Hand, Bottom
+            $image->flipHorizontal();
+            return ($image->copyRotate90(), 1);
+        } elsif( $orient == 8 ) { # Left-Hand, Bottom
+            return ($image->copyRotate270(), 1);
+        }
     }
 
     # Orientation unknown or not specified
