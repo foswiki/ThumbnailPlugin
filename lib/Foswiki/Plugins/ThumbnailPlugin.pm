@@ -53,7 +53,7 @@ $RELEASE = 'ThumbnailPlugin 1.001';
 
 $SHORTDESCRIPTION = 'Maintains thumbnails of attachements';
 
-$NO_PREFS_IN_TOPIC = 1;
+$NO_PREFS_IN_TOPIC = 0;
 
 # Name of this Plugin, only used in this module
 $pluginName = 'ThumbnailPlugin';
@@ -172,9 +172,9 @@ sub afterAttachmentSaveHandler {
     my $type = $2;
     return if( $error || $attName =~ m/_thumbnail\....$/ );
 
-    return unless( Foswiki::Func::getPreferencesFlag( "THUMBNAILPLUGIN_ENABLE", $web ) );
+    return unless( Foswiki::Func::getPreferencesFlag( "THUMBNAILPLUGIN_ENABLE" ) );
 
-    my $sizelist = Foswiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_SIZE", $web ) || 150;
+    my $sizelist = Foswiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_SIZE" ) || 150;
 
     eval {
         require GD;
