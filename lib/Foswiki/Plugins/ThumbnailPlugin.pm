@@ -35,13 +35,13 @@ Preference variables:
 
 =cut
 
-package TWiki::Plugins::ThumbnailPlugin;
+package Foswiki::Plugins::ThumbnailPlugin;
 
 # Always use strict to enforce variable scoping
 use strict;
 
-require TWiki::Func;    # The plugins API
-require TWiki::Plugins; # For the API version
+require Foswiki::Func;    # The plugins API
+require Foswiki::Plugins; # For the API version
 
 # $VERSION is referred to by TWiki, and is the only global variable that
 # *must* exist in this package.
@@ -72,16 +72,16 @@ sub initPlugin {
     my( $topic, $web, $user, $installWeb ) = @_;
 
     # check for Plugins.pm versions
-    if( $TWiki::Plugins::VERSION < 1.026 ) {
-        TWiki::Func::writeWarning( "Version mismatch between $pluginName and Plugins.pm" );
+    if( $Foswiki::Plugins::VERSION < 1.026 ) {
+        Foswiki::Func::writeWarning( "Version mismatch between $pluginName and Plugins.pm" );
         return 0;
     }
 
 
-#    my $setting = $TWiki::cfg{Plugins}{ThumbnailPlugin}{ExampleSetting} || 0;
-    $debug = $TWiki::cfg{Plugins}{ThumbnailPlugin}{Debug} || 0;
+#    my $setting = $Foswiki::cfg{Plugins}{ThumbnailPlugin}{ExampleSetting} || 0;
+    $debug = $Foswiki::cfg{Plugins}{ThumbnailPlugin}{Debug} || 0;
 
-    TWiki::Func::registerTagHandler( 'THUMBNAIL', \&_THUMBNAIL );
+    Foswiki::Func::registerTagHandler( 'THUMBNAIL', \&_THUMBNAIL );
 
     # Plugin correctly initialized
     return 1;
@@ -104,7 +104,7 @@ sub _THUMBNAIL {
     }
     my $variant = $params->{variant};
     unless( $params->{variant} ) {
-	my @prefs = split( /[, ]+/, TWiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_SIZE", $theWeb ));
+	my @prefs = split( /[, ]+/, Foswiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_SIZE", $theWeb ));
 	$variant = $prefs[0] || 150;
     }
 
@@ -128,14 +128,14 @@ The attributes hash will include at least the following attributes:
    * =user= - the user id
    * =tmpFilename= - name of a temporary file containing the attachment data
 
-*Since:* TWiki::Plugins::VERSION = 1.025
+*Since:* Foswiki::Plugins::VERSION = 1.025
 
 =cut
 
 sub DISABLE_beforeAttachmentSaveHandler {
     # do not uncomment, use $_[0], $_[1]... instead
     ###   my( $attrHashRef, $topic, $web ) = @_;
-    TWiki::Func::writeDebug( "- ${pluginName}::beforeAttachmentSaveHandler( $_[2].$_[1] )" ) if $debug;
+    Foswiki::Func::writeDebug( "- ${pluginName}::beforeAttachmentSaveHandler( $_[2].$_[1] )" ) if $debug;
 }
 
 =pod
@@ -151,14 +151,14 @@ will include at least the following attributes:
    * =comment= - the comment
    * =user= - the user id
 
-*Since:* TWiki::Plugins::VERSION = 1.025
+*Since:* Foswiki::Plugins::VERSION = 1.025
 
 =cut
 
 sub afterAttachmentSaveHandler {
     # do not uncomment, use $_[0], $_[1]... instead
     ###   my( $attrHashRef, $topic, $web ) = @_;
-#    TWiki::Func::writeDebug( "- ${pluginName}::afterAttachmentSaveHandler( $_[2].$_[1] )" ) if $debug;
+#    Foswiki::Func::writeDebug( "- ${pluginName}::afterAttachmentSaveHandler( $_[2].$_[1] )" ) if $debug;
 
       my $attr = $_[0];
       my $topic = $_[1];
@@ -172,9 +172,9 @@ sub afterAttachmentSaveHandler {
       my $type = $2;
       return if( $error || $attName =~ m/_thumbnail\....$/ );
 
-      return unless( TWiki::Func::getPreferencesFlag( "THUMBNAILPLUGIN_ENABLE", $web ) );
+      return unless( Foswiki::Func::getPreferencesFlag( "THUMBNAILPLUGIN_ENABLE", $web ) );
 
-      my $sizelist = TWiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_SIZE", $web ) || 150;
+      my $sizelist = Foswiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_SIZE", $web ) || 150;
 
       eval {
 	  require GD;
@@ -183,7 +183,7 @@ sub afterAttachmentSaveHandler {
 
       # This user just created the attachment, so I'm not bothering to check for access control errors
 
-      my $data = TWiki::Func::readAttachment( $web, $topic, $attName );
+      my $data = Foswiki::Func::readAttachment( $web, $topic, $attName );
 
       foreach my $size (split( /[ ,]+/, $sizelist)) {
 	  eval {
@@ -221,7 +221,7 @@ sub afterAttachmentSaveHandler {
 	  };
 	  
 	  my $err = 
-	      TWiki::Func::saveAttachment( $web, topic, "${name}_thumbnail_$size.$type", { hide=>($a->{unref}? 0 : 1),
+	      Foswiki::Func::saveAttachment( $web, topic, "${name}_thumbnail_$size.$type", { hide=>($a->{unref}? 0 : 1),
 											   comment=>$attr->{comment},
 											   file=>$file,
 											   
@@ -233,7 +233,7 @@ sub afterAttachmentSaveHandler {
           # will otherwise show up on the topic's attachment list - as non-hidden.
 
           my $fh;
-	  my $fname = TWiki::Func::getPubDir() . "/$web/$topic/${name}_thumbnail_$size.$type";
+	  my $fname = Foswiki::Func::getPubDir() . "/$web/$topic/${name}_thumbnail_$size.$type";
 
 	  open( $fh, ">", $fname ) or die "Can't open $fname for write: $!\n";
 	  binmode $fh;
