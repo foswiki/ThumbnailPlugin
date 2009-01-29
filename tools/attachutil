@@ -1,0 +1,765 @@
+#!/usr/bin/perl 
+
+# Copyright (C) 2008, 2009 Timothe Litt, litt@acm.org
+# All Rights Reserved. 
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# Removing this notice is prohibited.
+
+my $imgtypes = "jpg|JPG|gif|GIF|png|PNG";
+
+use strict;
+use warnings;
+
+use Cwd qw( realpath );
+use Error qw( :try );
+use File::Basename;
+#use Data::Dumper;
+#    $Data::Dumper::Sortkeys = 1;
+
+my $root;
+
+my $hide = 0;
+my $verbose = 0;
+my $comment;
+my $replace = 0;
+my $debug;
+my $user = 'apache';
+
+my $wikiWeb;
+my $wikiTopic;
+my $cmd;
+my $toWeb;
+my $toTopic;
+my $trashWeb = $Foswiki::cfg{TrashWebName};
+my $trashTopic = "TrashAttachment";  # Shouldn't this be a cfg variable?
+
+# This is annoying.  TWiki requires changed path.
+BEGIN {
+    $root =  '.';
+    $root = realpath $root;
+    $root =~ s|/$||;
+
+
+    chdir( dirname( realpath($0) ) . "/../bin" );
+
+    # Set library paths in @INC, at compile time
+    unshift @INC, '.';
+
+    require 'setlib.cfg';
+    require TWiki;
+    require Foswiki::Func;
+}
+
+# Wiki parsing help
+
+my $webregex = Foswiki::Func::getRegularExpression( 'webNameRegex' );
+my $wordregex = Foswiki::Func::getRegularExpression( 'wikiWordRegex' );
+my $webtopicregex = qr/^(?:($webregex)\.)?($wordregex)$/;
+
+# Valid commands
+
+my $cmdregex = qr/^(attach|hide|unhide|move|remove|thumb|help|list|update)$/;
+
+my $p = basename $0 || 'attachutil';
+
+my $rp = basename realpath $0;
+
+sub Usage {
+    print <<"USE";
+Usage:
+    $p attach -h -r web.topic files
+
+	Attach listed files to topic.  Hide if -h.
+
+    $p hide web.topic attachments
+
+        Mark existing attachments hidden.
+
+    $p unhide web.topic attachments
+
+        Mark existing attachments visible
+
+    $p list -v web.topic attachments
+
+        List attachments; default list all
+        -v show thumbnail sizes
+
+    $p move -r web.topic web.topic  attachments
+
+        Move existing attachments from the first web.topic to the second web.topic.
+	May specify destination web, topic or web.topic.
+	Defaults for destination are same web, same topic.
+
+    $p remove web.topic attachments
+
+        Move existing attachments to the trash
+
+    $p thumb sizes web.topic attachments
+
+        create thumbnail(s) of the specified size(s) for each attachment.
+
+    $p update web.topic attachments
+
+        Update file size, date attribute from file
+
+    attachments can be wildcarded (shell-style glob), use shell quotes to prevent shell expansion.
+
+    -r - Replace existing attachment if it exists
+    -u - If root, specify username to run under (default is $user)
+    -v - Verbose: list each action taken
+
+    You can softlink any command verb to $rp (or alias to $rp verb) and omit the verb from the command line.
+USE
+   exit;
+}
+
+# Find command verb
+
+if( $p =~ m/$cmdregex/ ) {
+    $cmd = $1;
+} else {
+    $cmd = shift;
+    unless( $cmd =~ m/$cmdregex/ ) {
+	print STDERR "Unknown command: $cmd, use help for usage\n";
+	exit;
+    }
+    $cmd = $1;
+}
+
+if( $cmd eq 'help' ) {
+    Usage();
+}
+
+# Handle switches
+
+$comment = "Bulk $cmd by $rp";
+
+while( $ARGV[0] && $ARGV[0] =~ /^-/ ) {
+    my $opt = shift;
+    
+    if( $opt eq '-d' ) {
+	$debug = 1;
+	next;
+    }
+    
+    if( $opt eq '-h' ) {
+	$hide = 1;
+	next;
+    }
+    if( $opt eq '-r' ) {
+	$replace = 1;
+	next;
+    }
+    
+    if( $opt eq '-v' ) {
+	$verbose = 1;
+	next;
+    }
+    
+    if( $opt eq '-c' && $ARGV[1] ) {
+	shift;
+	$comment = shift;
+	next;
+    }
+
+    if( $opt eq '-u' && $ARGV[1] ) {
+	shift;
+	$user = shift;
+	next;
+    }
+
+    
+    Usage();
+}
+
+# If root, switch to run under the specified user
+
+unless( $> ) {
+    my( undef, undef, $uid, $gid ) = getpwnam( $user );
+
+    unless( $uid && $gid ) {
+	print STDERR "Can't find apache\n";
+	exit;
+    }
+
+    $) = "$gid $gid" or die "Unable to set user $user gid $gid: $!\n";
+    $> = $uid or die "Unable to set user $user uid $uid: $!\n";
+}
+
+# Parse sizes
+
+my @sizes = ();
+
+if( $cmd eq 'thumb' ) {
+    while( $ARGV[0] && $ARGV[0] =~ m/^(\d+)$/ ) {
+	push @sizes, $1;
+	shift;
+    }
+}
+
+# Parse first topic argument
+
+unless( $ARGV[0] && $ARGV[0] =~ m/$webtopicregex/ ) {
+    print STDERR "Specify Web.Topic to $cmd\n";
+    exit;
+}
+
+$wikiWeb = $1 || 'Sandbox';
+$wikiTopic = $2;
+shift;
+
+# For commands requiring it, parse second topic argument
+
+if( $cmd eq 'move' ) {
+    unless( $ARGV[0] ) {
+	print STDERR "Specify Web or Web.Topic destination\n";
+	exit;
+    }
+    if( $ARGV[0] =~ m/$webtopicregex/ ) {
+	$toWeb = $1 || $wikiWeb;
+	$toTopic = $2 || $wikiTopic;
+	shift;
+    } elsif( $ARGV[0] =~ m/^($webregex)$/ ) {
+	$toWeb = $1;
+	$toTopic = $wikiTopic;
+    } else {
+	print STDERR "Specify Web or Web.Topic destination\n";
+	exit;
+    }
+}
+
+# Initialize wiki
+
+use CGI;
+
+my $q = CGI->new;
+
+my $twiki = new TWiki( undef, $q );
+$Foswiki::Plugins::SESSION = $twiki;
+
+my $foswikiCtx = Foswiki::Func::getContext();
+$foswikiCtx->{command_line} = 1;
+
+# web/topic must exist for all commands
+
+unless( Foswiki::Func::webExists( $wikiWeb ) ) {
+    print STDERR "Web $wikiWeb does not exist, cannot proceed\n";
+    exit;
+}
+
+if(!Foswiki::Func::topicExists( $wikiWeb, $wikiTopic ) ) {
+    print STDERR "Topic $wikiWeb.$wikiTopic does not exist\n";
+    exit;
+}
+
+# Make sure preferences come from the source topic.
+
+Foswiki::Func::pushTopicContext( $wikiWeb, $wikiTopic );
+
+# attach web.topic files
+
+if( $cmd eq 'attach' ) {
+
+    foreach my $f ( @ARGV ) {
+	
+	my $file = $f;
+	$file = "$root/$f" unless( $file =~ m/^\// );
+	
+	unless( -r $file && -f $file ) {
+	    print "$file is not a regular file, skipped.\n";
+	    next;
+	}
+	
+	my( $attname, $oldname ) = Foswiki::Func::sanitizeAttachmentName( basename( $file ) );
+
+	if( Foswiki::Func::attachmentExists( $wikiWeb, $wikiTopic, $attname ) ) {
+	    unless( $replace ) {
+		print STDERR "Error: Can't attach $file to $wikiWeb.$wikiTopic: $attname already exists\n";
+		next;
+	    }
+	    print STDERR "Replacing $wikiWeb.$wikiTopic:$attname with $file\n" if( $verbose );
+	} else {
+	    print STDERR "Attaching $file to $wikiWeb.$wikiTopic as $attname\n" if( $verbose );
+	}
+	my( $size, $date );
+	my @stats = (stat $file)[7,9];
+	unless( @stats ) {
+	    print STDERR "Unable to stat $file: $!\n";
+	    next;
+	}
+	($size, $date) = @stats;
+
+	my $err = 
+	    Foswiki::Func::saveAttachment( $wikiWeb, 
+					 $wikiTopic, 
+					 $attname, 
+					 { hide=>$hide,
+					   comment=>$comment,
+					   dontlog=>0,
+					   file=>$file,
+					   filesize=>$size,
+					   filedate=>$date,
+				       } );
+	if( $err ) {
+	    print STDERR "Failed to save $attname: ", $err, "\n";
+	    exit;
+	}
+    }
+
+    exit;
+}
+
+# Remaining commands all deal with attachments under $wikiWeb.$wikiTopic
+# Expand wildcards
+
+## Get topic lock??
+
+my( $meta, $text ) = Foswiki::Func::readTopic( $wikiWeb, $wikiTopic );
+
+# Attachments in topic
+
+my @attached = $meta->find( 'FILEATTACHMENT' );
+my @attachnames = ();
+
+foreach my $a (@attached) {
+    push @attachnames, $a->{name};
+}
+
+# Attachments that match command line - filter duplicates
+
+push @ARGV, '*' if( $cmd eq 'list' && !@ARGV );
+
+my %attachments;
+
+use Text::Glob;
+
+foreach my $a ( @ARGV ) {
+    my @matches = Text::Glob::match_glob( $a, @attachnames );
+
+    unless( @matches ) {
+	print STDERR "Warning: $a does not match any attachments in $wikiWeb.$wikiTopic\n";
+	next;
+    }
+    foreach my $m (@matches) {
+	$attachments{$m} = 'n/a';
+    }
+}
+
+# (un)hide web.topic attachments
+
+if( $cmd =~ m/^(un)?hide$/ ) {
+    $hide = !$1;
+
+    foreach my $a (sort keys %attachments ) {
+	my $attrs = $meta->get( 'FILEATTACHMENT', $a );
+	die "Nullattrs" unless( $attrs );
+
+	$attrs->{attr} = ($hide)? 'h' : '';
+	$meta->putKeyed( 'FILEATTACHMENT', $attrs );
+    }
+
+    my $error = Foswiki::Func::saveTopic( $wikiWeb, $wikiTopic, $meta, $text, { minor=>1, } );
+    if( $error ) {
+	print STDERR "Error saving $wikiWeb.$wikiTopic: $error\n";
+    }
+
+    exit;
+}
+
+# list web.topic attachments
+
+if( $cmd eq 'list' ) {
+    sub size {
+	my $bytes = shift;
+
+	return "-" if( !$bytes || $bytes < 100 );
+	return sprintf "%5.1fK", $bytes/1024 if( $bytes < 1024 * 1024 );
+	return sprintf "%5.1fM", $bytes/(1024 * 1024) if( $bytes < 1024* 1024 * 1024 );
+	return sprintf "%3.1G", $bytes/(1024 * 1024 * 1024);
+    }
+
+    my( $mxn, $mxu, $mxs, $mxt ) = ( 0, 0, 0, 0 );
+    my $wikiPub;
+    $wikiPub = Foswiki::Func::getPubDir() . '/' . $wikiWeb if( $verbose );
+
+    foreach my $a (sort keys %attachments ) {
+	my $attrs = $meta->get( 'FILEATTACHMENT', $a );
+	die "Nullattrs" unless( $attrs );
+
+	my $nl = length( $attrs->{attachment} || $attrs->{name} );
+	$mxn = $nl if( $mxn < $nl );
+	my $u = $attrs->{user} || 'UnknownUser';
+	$u = length Foswiki::Func::getWikiUserName( $u );
+	$mxu = $u if( $mxu < $u );
+	my $s = length size $attrs->{size} || 0;
+	$mxs = $s if( $mxs < $s );
+
+	next unless( $verbose &&  $a =~ m/^(.*)\.($imgtypes)$/ );
+
+	$attachments{$a} = 'none';
+
+	my @thumbs = glob( "$wikiPub/$wikiTopic/$1_thumbnail_[0-9]*.$2" );
+
+	my $tsizes = "";
+	foreach my $thumb (sort { $a =~ m/_thumbnail_(\d+)\.(?:$imgtypes)$/; my $ak = $1;
+				  $b =~ m/_thumbnail_(\d+)\.(?:$imgtypes)$/; my $bk = $1;
+				  $ak <=> $bk
+				}  @thumbs) {
+	    next unless( $thumb =~ m/_thumbnail_([0-9]*)\.(?:$imgtypes)$/ );
+	    $tsizes .= ", $1";
+	}
+	$tsizes =~ s/^, //;
+	$attachments{$a} = $tsizes if( $tsizes );
+	$mxt = length $tsizes if( $tsizes );
+    }
+
+    exit unless( $mxn );
+
+    require Foswiki::Time;
+
+    foreach my $a (sort keys %attachments ) {
+	my $attrs = $meta->get( 'FILEATTACHMENT', $a );
+	die "Nullattrs" unless( $attrs );
+
+	my $u = $attrs->{user} || 'UnknownUser';
+	$u = Foswiki::Func::getWikiUserName( $u );
+
+	if( $verbose ) {
+	    printf "%-*s %*s %s %-*s %1s (%*s) %s\n", 
+	                        $mxn, ($attrs->{attachment} || $attrs->{name}), 
+	                        $mxs, size( $attrs->{size} || 0 ),
+	                        Foswiki::Time::formatTime($attrs->{date} || 0), 
+	                        $mxu, $u,
+	                        ($attrs->{attr}? $attrs->{attr} : ' '), 
+	                        $mxt, $attachments{$a}, 
+	                        $attrs->{comment};
+	} else {
+	    printf "%-*s %*s %s %-*s %1s %s\n", 
+	                        $mxn, ($attrs->{attachment} || $attrs->{name}), 
+	                        $mxs, size( $attrs->{size} || 0 ),
+	                        Foswiki::Time::formatTime($attrs->{date} || 0), 
+	                        $mxu, $u,
+	                        ($attrs->{attr}? $attrs->{attr} : ' '), 
+	                        $attrs->{comment};
+	}
+    }
+
+    exit;
+}
+
+# thumbnail sizes web.topic attachments
+
+if( $cmd eq 'thumb' ) {
+    my $wikiPub = Foswiki::Func::getPubDir() . '/' . $wikiWeb;
+
+
+    eval {
+	require GD;
+	require Image::MetaData::JPEG;
+    };die "$rp: Can\'t load required modules $@" if( $@ );
+
+    foreach my $a (sort keys %attachments ) {
+	next unless( $a =~ m/^(.*)\.($imgtypes)$/ );
+
+	my( $name, $ext ) = ( $1, $2 );
+
+	my $data;
+
+	foreach my $s (sort @sizes) {
+	    my $tfile = "$wikiPub/$wikiTopic/${name}_thumbnail_$s.$2";
+
+	    next if( -f $tfile );
+
+	    unless( $data ) {
+		try {
+		    $data = Foswiki::Func::readAttachment( $wikiWeb, $wikiTopic, $a );
+		} catch Foswiki::AccessControlException with {
+		    my $e = shift;
+		    print STDERR $e->{user}, "is unable to ", $e->{mode}, " $wikiWeb.$wikiTopic:$a - " . $e->{reason} . "\n";
+		} catch Error::Simple with {
+		    my $e = shift;
+		    print STDERR "Unable to read $wikiWeb.$wikiTopic:$a - " . $e->{-text} . "\n";
+		    next;
+		};
+	    }
+
+	    my $tdat = $data;
+	    eval {
+		$tdat = resize( $tdat, $s, lc $ext );
+	    }; if( $@ ) {
+		print STDERR "Unable to resize $a for thumbnail size $s: $@\n";
+		next;
+	    }
+
+	    my $t;
+	    unless( open( $t, ">", $tfile ) ) {
+		print STDERR "Unable to write $tfile: $!\n";
+		next;
+	    }
+	    binmode $t;
+	    unless( print $t $tdat ) {
+		print STDERR "Unable to write $tfile: $!\n";
+		close $t;
+		next;
+	    }
+	    unless( close $t ) {
+		print STDERR "Failed to close $tfile: $!\n";
+		next;
+	    }
+	    print STDERR "Created $tfile\n" if( $verbose );
+	}
+    }
+
+    exit;
+}
+
+# update web.topic attachments
+
+if( $cmd eq 'update' ) {
+    my $wikiPub = Foswiki::Func::getPubDir() . '/' . $wikiWeb;
+
+    foreach my $a (sort keys %attachments ) {
+	my $attrs = $meta->get( 'FILEATTACHMENT', $a );
+	die "Nullattrs" unless( $attrs );
+
+	my $name = $attrs->{attachment} || $attrs->{name};
+	next unless $name;
+
+	my @stat = (stat( "$wikiPub/$wikiTopic/$name"))[7,9];
+	if( @stat ) {
+	    print STDERR "Updating $wikiWeb.$wikiTopic:$a\n" if( $verbose );
+	    $attrs->{size} = $stat[0];
+	    $attrs->{date} = $stat[1];
+	} else {
+	    print STDERR "Can't find $wikiWeb.$wikiTopic:$name\n";
+	    $attrs->{size} = 0;
+	    $attrs->{date} = 0;
+	}
+	$meta->putKeyed( 'FILEATTACHMENT', $attrs );
+    }
+
+    my $error = Foswiki::Func::saveTopic( $wikiWeb, $wikiTopic, $meta, $text, { minor=>1, } );
+    if( $error ) {
+	print STDERR "Error saving $wikiWeb.$wikiTopic: $error\n";
+    }
+
+    exit;
+}
+
+# remove web.topic attachments
+
+if( $cmd eq 'remove' ) {
+    $toWeb = $trashWeb;
+    $toTopic = $trashTopic;
+}
+
+use Error qw ( :try );
+
+# move web.topic toweb.totopic attachments
+
+if( $cmd =~ m/^(re)?move/ ) {
+    my $delete = $1;
+
+    unless( Foswiki::Func::webExists( $toWeb ) ) {
+	print STDERR "Web $toWeb does not exist, cannot proceed\n";
+	exit;
+    }
+    if(!Foswiki::Func::topicExists( $toWeb, $toTopic ) ) {
+	print STDERR "Topic $toWeb.$toTopic does not exist\n";
+	exit;
+    }
+
+    my $wikiPub = Foswiki::Func::getPubDir() . '/' . $wikiWeb;
+    my $toPub = Foswiki::Func::getPubDir() . '/' . $toWeb;
+
+    foreach my $a (sort keys %attachments ) {
+	my $toa = $a;
+
+	if( $delete && !$replace ) {
+	    my $seq = 1;
+	    my( $name, $ext ) = $a =~ m/^(.*)(\..*)$/;
+	    $ext ||= '';
+	    
+	    while( $seq < 999 && Foswiki::Func::attachmentExists( $toWeb, $toTopic, sprintf "$name-%03d$ext", $seq ) ) {
+		$seq++;
+	    }
+	    $toa = sprintf "$name-%03d$ext", $seq;
+	}
+	if( Foswiki::Func::attachmentExists( $toWeb, $toTopic, $toa ) ) {
+	    unless( $replace ) {
+		print STDERR "Error: Can't move $wikiWeb.$wikiTopic:$a to $toWeb.$toTopic: that attachment already exists\n";
+		next;
+	    }
+	    print STDERR "Replacing $toWeb.$toTopic:$a with $wikiWeb.$wikiTopic:$toa\n" if( $verbose );
+	} else {
+	    if( $verbose ) {
+		print STDERR "Moving $wikiWeb.$wikiTopic:$a to $toWeb.$toTopic";
+		print STDERR ":$toa" if( $toa ne $a );
+		print STDERR "\n";
+	    }
+	}
+
+	try {
+	    Foswiki::Func::moveAttachment( $wikiWeb, $wikiTopic, $a, $toWeb, $toTopic, $toa );
+        } catch Foswiki::AccessControlException with {
+	    my $e = shift;
+
+	    print STDERR "Error: Access control exception moving $wikiWeb.$wikiTopic:$a to $toWeb.$toTopic:$toa\n";
+	    print STDERR " - " . $e->{reason} . "\n";
+	    next;
+	} catch Error::Simple with {
+	    my $e = shift;
+
+	    print STDERR "Error: Error moving $wikiWeb.$wikiTopic:$a to $toWeb.$toTopic:$toa\n";
+	    print STDERR " - " . $e->{-text} . "\n";
+	    next;
+	} otherwise {
+	    my $e = shift;
+
+	    print STDERR "Error- Error moving $wikiWeb.$wikiTopic:$a to $toWeb.$toTopic:$toa\n";
+	    print STDERR " - " .  $@ . "\n";
+	    next;
+	};
+
+	next unless( $a =~ m/^(.*)\.($imgtypes)$/ );
+
+	my @thumbs = glob( "$wikiPub/$wikiTopic/$1_thumbnail_[0-9]*.$2" );
+
+	foreach my $thumb (@thumbs) {
+	    my( $name, $ext ) = $toa =~ m/^(.*)(\..*)$/;
+	    $thumb =~ m/^(.*\/)(?:.*)(_thumbnail_[0-9]*\.(?:$imgtypes))$/;
+	    my $newthumb = "$1$name$2";
+	    $newthumb =~ s/^$wikiPub\/$wikiTopic\//$toPub\/$toTopic\//;
+	    unless( File::Copy::move( $thumb, $newthumb ) ) {
+		print STDERR "Error: Unable to move $thumb to $newthumb: $!\n";
+		next;
+	    }
+	    print STDERR "Moved $thumb to $newthumb\n" if( $verbose );
+	}
+    }
+    exit;
+}	
+
+die "Command parsing error; fell off the edge of the world";
+
+=head2 resize( $file, $size )
+
+Resizes C<$file> to C<$size>xC<$size> with transparent margins.
+
+=cut
+
+sub resize {
+    my $file = shift;
+    my $size = shift;
+    my $type = shift;
+
+    my ($image, $hint) = load( $file );
+
+    my ( $width, $height ) = $image->getBounds();
+
+    my $image2 = new GD::Image( $size, $size );
+
+    $image2->transparent( $image2->colorAllocate( 0, 0, 0 ) );
+
+    my $hnw = int( ( $height * $size / $width ) + 0.5 );
+    my $wnh = int( ( $width * $size / $height ) + 0.5 );
+
+    my @arg = ( $image, 0, 0, 0, 0, $size, $size, $width, $height );
+
+    if ( $width > $height ) {
+        $arg[ 2 ] = int( ( $size - $hnw ) / 2 + 0.5 );
+        @arg[ 5, 6 ] = ( $size, $hnw );
+    }
+    elsif ( $width < $height ) {
+        $arg[ 1 ] = int( ( $size - $wnh ) / 2 + 0.5 );
+        @arg[ 5, 6 ] = ( $wnh, $size );
+    }
+
+    $image2->copyResized( @arg );
+
+    return $image2->png if( $type eq 'png' );
+    return $image2->gif if( $type eq 'gif' );
+    return $image2->jpeg;
+}
+
+=head2 load( $file )
+
+Loads C<$file> and returns a L<GD::Image>.
+
+File is actually data.  It can be a filename - but
+in that case, the call to create the JPEG object 
+should pass the filename, not a ref.
+
+Handles autorotation - at least for jpeg files.
+
+=cut
+
+sub load {
+    my $file = shift;
+
+    my $image;
+    die "GD library is too old for ThumbnailPlugin" if ( $GD::VERSION < 1.30 );
+
+    $image = GD::Image->new( $file );
+
+    $Image::MetaData::JPEG::show_warnings = undef;
+    $Image::MetaData::JPEG::show_warnings = undef; # Twice because of "used only once" warning.
+
+    my $jpg = new Image::MetaData::JPEG(\$file, qr/APP(0|1)/, 'FASTREADONLY');
+
+    return ($image, 0) unless $jpg;
+
+    my $snum = $jpg->retrieve_app1_Exif_segment(-1);
+    for( my $i = 0; $i < $snum; $i++) {
+   
+	my $seg = $jpg->retrieve_app1_Exif_segment($i);
+	my $imgdat = $seg->get_Exif_data('IMAGE_DATA', 'TEXTUAL');
+  
+	my $o = $imgdat->{'Orientation'};
+	next unless $o;
+
+	my $orient = @$o[0];
+	if( $orient == 1 ) { # Top, Left-Hand
+	    # Normal orientation
+	    return ($image, 0);
+	} elsif( $orient == 2 ) { # Top, Right-Hand
+	    $image->flipHorizontal();
+	    return ($image, 1);
+	} elsif( $orient == 3 ) { # Bottom, Right-Hand
+	    $image->rotate180();
+	    return ($image, 1);
+	} elsif( $orient == 4 ) { # Bottom, Left-Hand
+	    $image->flipVertical();
+	    return ($image, 1);
+	} elsif( $orient == 5 ) { # Left-Hand, Top
+	    $image->flipVertical();
+	    return ($image->copyRotate90(), 1);
+	} elsif( $orient == 6 ) { # Right-Hand, Top
+	    return ($image->copyRotate90(), 1);
+	} elsif( $orient == 7 ) { # Right-Hand, Bottom
+	    $image->flipHorizontal();
+	    return ($image->copyRotate90(), 1);
+	} elsif( $orient == 8 ) { # Left-Hand, Bottom
+	    return ($image->copyRotate270(), 1);
+	}
+    }
+
+    # Orientation unknown or not specified
+
+    return ($image, 0);
+}
+
+__END__
