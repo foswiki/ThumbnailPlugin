@@ -1,4 +1,4 @@
-# Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/ 
+# Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
 # Plugin API:
 # Copyright (C) 2000-2003 Andrea Sterbini, a.sterbini@flashnet.it
@@ -40,13 +40,14 @@ package Foswiki::Plugins::ThumbnailPlugin;
 # Always use strict to enforce variable scoping
 use strict;
 
-require Foswiki::Func;    # The plugins API
-require Foswiki::Plugins; # For the API version
+require Foswiki::Func;       # The plugins API
+require Foswiki::Plugins;    # For the API version
 use Error qw( :try );
 
 # $VERSION is referred to by Foswiki, and is the only global variable that
 # *must* exist in this package.
-use vars qw( $VERSION $RELEASE $SHORTDESCRIPTION $debug $pluginName $NO_PREFS_IN_TOPIC );
+use vars
+  qw( $VERSION $RELEASE $SHORTDESCRIPTION $debug $pluginName $NO_PREFS_IN_TOPIC );
 
 $VERSION = '$Rev: 15942 (11 Aug 2008) $';
 
@@ -70,14 +71,14 @@ $pluginName = 'ThumbnailPlugin';
 =cut
 
 sub initPlugin {
-    my( $topic, $web, $user, $installWeb ) = @_;
+    my ( $topic, $web, $user, $installWeb ) = @_;
 
     # check for Plugins.pm versions
-    if( $Foswiki::Plugins::VERSION < 1.026 ) {
-        Foswiki::Func::writeWarning( "Version mismatch between $pluginName and Plugins.pm" );
+    if ( $Foswiki::Plugins::VERSION < 1.026 ) {
+        Foswiki::Func::writeWarning(
+            "Version mismatch between $pluginName and Plugins.pm");
         return 0;
     }
-
 
 #    my $setting = $Foswiki::cfg{Plugins}{ThumbnailPlugin}{ExampleSetting} || 0;
 #    $debug = $Foswiki::cfg{Plugins}{ThumbnailPlugin}{Debug} || 0;
@@ -95,68 +96,79 @@ sub initPlugin {
 # Does not consider path, topic or web.
 
 sub _THUMBNAIL {
-    my($session, $params, $theTopic, $theWeb) = @_;
+    my ( $session, $params, $theTopic, $theWeb ) = @_;
 
     my $attName = $params->{name} || $params->{_DEFAULT};
 
     my $imgtypes;
-    if( $imgtypes = $params->{imgtypes} ) {
-	return "THUMBNAIL: Improper image type" unless( $imgtypes =~ m/^[\w|]+$/ );
-    } else {
-	$imgtypes = "jpg|JPG|gif|GIF|png|PNG";
+    if ( $imgtypes = $params->{imgtypes} ) {
+        return "THUMBNAIL: Improper image type"
+          unless ( $imgtypes =~ m/^[\w|]+$/ );
+    }
+    else {
+        $imgtypes = "jpg|JPG|gif|GIF|png|PNG";
     }
     my $variant = $params->{variant};
-    unless( $params->{variant} ) {
-	my @prefs = split( /[, ]+/, Foswiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_SIZE" ));
-	$variant = $prefs[0] || 150;
+    unless ( $params->{variant} ) {
+        my @prefs =
+          split( /[, ]+/,
+            Foswiki::Func::getPreferencesValue("THUMBNAILPLUGIN_SIZE") );
+        $variant = $prefs[0] || 150;
     }
 
-    return "THUMBNAIL: $attName is not a recognized image type" unless( $attName =~ m/^(.*)\.($imgtypes)$/ );
+    return "THUMBNAIL: $attName is not a recognized image type"
+      unless ( $attName =~ m/^(.*)\.($imgtypes)$/ );
 
     return "$1_thumbnail_$variant.$2";
 }
 
-# %THUMBVIEW{filename topic web variant caption link ltopic lweb nolink 
+# %THUMBVIEW{filename topic web variant caption link ltopic lweb nolink
 #            border height width id class align attrs cpos lid lclass ltarget lname lattrs }%
 # Displays a thumbnail, usually linking to it's main image.  But there are options...
-# 
+#
 
 sub _THUMBVIEW {
-    my($session, $params, $theTopic, $theWeb) = @_;
+    my ( $session, $params, $theTopic, $theWeb ) = @_;
 
     my $thumbName = $params->{name} || $params->{_DEFAULT};
 
     my $imgtypes;
-    if( $imgtypes = $params->{imgtypes} ) {
-	return "THUMBVIEW: Improper image type" unless( $imgtypes =~ m/^[\w|]+$/ );
-    } else {
-	$imgtypes = "jpg|JPG|gif|GIF|png|PNG";
+    if ( $imgtypes = $params->{imgtypes} ) {
+        return "THUMBVIEW: Improper image type"
+          unless ( $imgtypes =~ m/^[\w|]+$/ );
+    }
+    else {
+        $imgtypes = "jpg|JPG|gif|GIF|png|PNG";
     }
     my $variant = $params->{variant};
-    unless( $params->{variant} ) {
-	my @prefs = split( /[, ]+/, Foswiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_SIZE" ));
-	$variant = $prefs[0] || 150;
+    unless ( $params->{variant} ) {
+        my @prefs =
+          split( /[, ]+/,
+            Foswiki::Func::getPreferencesValue("THUMBNAILPLUGIN_SIZE") );
+        $variant = $prefs[0] || 150;
     }
 
-    return "THUMBVIEW: $thumbName is not a recognized image type" unless( $thumbName =~ m/^(.*)\.($imgtypes)$/ );
+    return "THUMBVIEW: $thumbName is not a recognized image type"
+      unless ( $thumbName =~ m/^(.*)\.($imgtypes)$/ );
 
     my $thumbname = "$1_thumbnail_$variant.$2";
 
     my $fullpath;
-    unless( exists $params->{fullpath} ) {
-	$fullpath = Foswiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_FULLPATH" ) || 0;
+    unless ( exists $params->{fullpath} ) {
+        $fullpath =
+          Foswiki::Func::getPreferencesValue("THUMBNAILPLUGIN_FULLPATH") || 0;
     }
     my $path = Foswiki::Func::getPubUrlPath();
-    $path = Foswiki::Func::getUrlHost() . $path if( $fullpath );
+    $path = Foswiki::Func::getUrlHost() . $path if ($fullpath);
 
     my $thumbTopic = $params->{topic} || $theTopic;
-    my $thumbWeb = $params->{web} || $theWeb;
-    my $thumbPath = "$path/$thumbWeb/$thumbTopic/$thumbname";
+    my $thumbWeb   = $params->{web}   || $theWeb;
+    my $thumbPath  = "$path/$thumbWeb/$thumbTopic/$thumbname";
 
     my $caption = $params->{caption};
     my $cpos = $params->{cpos} || 'bottom';
 
-    my $lname = $params->{link} || $thumbName;
+    my $lname  = $params->{link}   || $thumbName;
     my $ltopic = $params->{ltopic} || $thumbTopic;
     my $lweb = $params->{lweb} ||= $thumbWeb;
     my $linkPath = "$path/$lweb/$ltopic/$lname";
@@ -166,50 +178,57 @@ sub _THUMBVIEW {
     my $lbeg = '';
     my $lend = '';
 
-    if( $link ) {
-	$lbeg = "<a href='$linkPath'";
-	my @attrs = ('lid', 'lclass', 'ltarget', 'lname', 'lheight', 'lwidth', 'laligh', 'lborder' );
-	while (my $key = shift @attrs) {
-	    if (my $val = $params->{$key} || '') {
-		$val =~ s/^l//;
-		$lbeg .= " $key='$val'";
-	    }
-	}
-	$lbeg .= ' ' . $params->{lattrs} if( $params->{lattrs} );
-	$lbeg .= '>';
-	$lend = '</a>';
+    if ($link) {
+        $lbeg = "<a href='$linkPath'";
+        my @attrs = (
+            'lid',     'lclass', 'ltarget', 'lname',
+            'lheight', 'lwidth', 'laligh',  'lborder'
+        );
+        while ( my $key = shift @attrs ) {
+            if ( my $val = $params->{$key} || '' ) {
+                $val =~ s/^l//;
+                $lbeg .= " $key='$val'";
+            }
+        }
+        $lbeg .= ' ' . $params->{lattrs} if ( $params->{lattrs} );
+        $lbeg .= '>';
+        $lend = '</a>';
     }
 
-    my $txt = "$lbeg<img src='$thumbPath'";
-    my @attrs = ('align', 'border', 'height', 'width', 'id', 'class');
+    my $txt   = "$lbeg<img src='$thumbPath'";
+    my @attrs = ( 'align', 'border', 'height', 'width', 'id', 'class' );
     my $attrs = '';
-    while (my $key = shift @attrs) {
-	if (my $val = $params->{$key} || '') {
-	    $attrs .= " $key='$val'";
-	}
+    while ( my $key = shift @attrs ) {
+        if ( my $val = $params->{$key} || '' ) {
+            $attrs .= " $key='$val'";
+        }
     }
-    $attrs .= ' ' . $params->{attrs} if( $params->{attrs} );
+    $attrs .= ' ' . $params->{attrs} if ( $params->{attrs} );
 
-    if( $caption ) {
-	my $tbl  = '<table' . $attrs . '><tr>';
-	$txt .= ">$lend";
-	if ($cpos eq 'right') {
-	    $tbl .= "<td align='center'>$txt</td>";
-	    $tbl .= "<td align='left'>$caption</td>";
-	} elsif ($cpos eq 'left') {
-	    $tbl .= "<td align='center'>$caption</td>";
-	    $tbl .= "<td align='left'>$txt</td>";
-	} elsif ($cpos eq 'top') {
-	    $tbl .= "<td align='center'>$caption</td></tr>";
-	    $tbl .= "<tr><td align='left'>$txt</td>";
-	} else {
-	    $tbl .= "<td align='center'>$txt</td></tr>";
-	    $tbl .= "<tr><td align='left'>$caption</td>";
-	}
-	$tbl .= '</tr></table>';
-	$txt = $tbl;
-    } else {
-	$txt .= $attrs . ">$lend";
+    if ($caption) {
+        my $tbl = '<table' . $attrs . '><tr>';
+        $txt .= ">$lend";
+        if ( $cpos eq 'right' ) {
+            $tbl .= "<td align='center'>$txt</td>";
+            $tbl .= "<td align='left'>$caption</td>";
+        }
+        elsif ( $cpos eq 'left' ) {
+            $tbl .= "<td align='center'>$caption</td>";
+            $tbl .= "<td align='left'>$txt</td>";
+        }
+        elsif ( $cpos eq 'top' ) {
+            $tbl .= "<td align='center'>$caption</td></tr>";
+            $tbl .= "<tr><td align='left'>$txt</td>";
+        }
+        else {
+            $tbl .= "<td align='center'>$txt</td></tr>";
+            $tbl .= "<tr><td align='left'>$caption</td>";
+        }
+        $tbl .= '</tr></table>';
+        $txt = $tbl;
+    }
+    else {
+        $txt .= $attrs . ">$lend";
     }
 
     return $txt;
@@ -235,9 +254,12 @@ The attributes hash will include at least the following attributes:
 =cut
 
 sub DISABLE_beforeAttachmentSaveHandler {
+
     # do not uncomment, use $_[0], $_[1]... instead
     ###   my( $attrHashRef, $topic, $web ) = @_;
-    Foswiki::Func::writeDebug( "- ${pluginName}::beforeAttachmentSaveHandler( $_[2].$_[1] )" ) if $debug;
+    Foswiki::Func::writeDebug(
+        "- ${pluginName}::beforeAttachmentSaveHandler( $_[2].$_[1] )")
+      if $debug;
 }
 
 =pod
@@ -258,44 +280,47 @@ will include at least the following attributes:
 =cut
 
 sub afterAttachmentSaveHandler {
+
     # do not uncomment, use $_[0], $_[1]... instead
     ###   my( $attrHashRef, $topic, $web ) = @_;
 #    Foswiki::Func::writeDebug( "- ${pluginName}::afterAttachmentSaveHandler( $_[2].$_[1] )" ) if $debug;
 
-      my $attr = $_[0];
-      my $topic = $_[1];
-      my $web = $_[2];
-      my $error = $_[3];
+    my $attr  = $_[0];
+    my $topic = $_[1];
+    my $web   = $_[2];
+    my $error = $_[3];
 
-      my $attName = $attr->{attachment};
+    my $attName = $attr->{attachment};
 
-      return unless( $attName =~ m/^(.*)\.(jpg|JPG|gif|GIF|png|PNG)$/ );
-      my $name = $1;
-      my $type = $2;
-      return if( $error || $attName =~ m/_thumbnail\....$/ );
+    return unless ( $attName =~ m/^(.*)\.(jpg|JPG|gif|GIF|png|PNG)$/ );
+    my $name = $1;
+    my $type = $2;
+    return if ( $error || $attName =~ m/_thumbnail\....$/ );
 
-      return unless( Foswiki::Func::getPreferencesFlag( "THUMBNAILPLUGIN_ENABLE" ) );
+    return
+      unless ( Foswiki::Func::getPreferencesFlag("THUMBNAILPLUGIN_ENABLE") );
 
-      my $sizelist = Foswiki::Func::getPreferencesValue( "THUMBNAILPLUGIN_SIZE" ) || 150;
+    my $sizelist = Foswiki::Func::getPreferencesValue("THUMBNAILPLUGIN_SIZE")
+      || 150;
 
-      eval {
-	  require GD;
-	  require Image::MetaData::JPEG;
-      };die "$pluginName: cant load required modules $@" if( $@ );
+    eval {
+        require GD;
+        require Image::MetaData::JPEG;
+    };
+    die "$pluginName: cant load required modules $@" if ($@);
 
-      # This user just created the attachment, so I'm not bothering to check for access control errors
+# This user just created the attachment, so I'm not bothering to check for access control errors
 
-      my $data = Foswiki::Func::readAttachment( $web, $topic, $attName );
+    my $data = Foswiki::Func::readAttachment( $web, $topic, $attName );
 
-      foreach my $size (split( /[ ,]+/, $sizelist)) {
-	  eval {
-	      $data = resize( $data, $size, lc $type );
-	  }; if( $@ ) {
-	      die "${pluginName}: Unable to resize $attName for thumbnail: $@\n";
-	  }
-	  
-	  my $err;
-	  
+    foreach my $size ( split( /[ ,]+/, $sizelist ) ) {
+        eval { $data = resize( $data, $size, lc $type ); };
+        if ($@) {
+            die "${pluginName}: Unable to resize $attName for thumbnail: $@\n";
+        }
+
+        my $err;
+
 =for workingapi
 
           None of these methods will work since addRevisionFromStream is a private method, and
@@ -331,23 +356,24 @@ sub afterAttachmentSaveHandler {
 											   
 										       } );
 =cut
-	      
-	  # Break the object and storage abstraction rules and write directly to
-          # the attachment storage area.  You probably want autoattach off, as these
-          # will otherwise show up on the topic's attachment list - as non-hidden.
 
-          my $fh;
-	  my $fname = Foswiki::Func::getPubDir() . "/$web/$topic/${name}_thumbnail_$size.$type";
+      # Break the object and storage abstraction rules and write directly to
+      # the attachment storage area.  You probably want autoattach off, as these
+      # will otherwise show up on the topic's attachment list - as non-hidden.
 
-	  open( $fh, ">", $fname ) or die "Can't open $fname for write: $!\n";
-	  binmode $fh;
-	  print $fh $data or die "Can't write $fname: $!\n";
-            
-	  close $fh or die "Can't close $fname: $!\n";
-      }
+        my $fh;
+        my $fname = Foswiki::Func::getPubDir()
+          . "/$web/$topic/${name}_thumbnail_$size.$type";
 
-      return;      
-  }
+        open( $fh, ">", $fname ) or die "Can't open $fname for write: $!\n";
+        binmode $fh;
+        print $fh $data or die "Can't write $fname: $!\n";
+
+        close $fh or die "Can't close $fname: $!\n";
+    }
+
+    return;
+}
 
 =head2 resize( $file, $size )
 
@@ -360,7 +386,7 @@ sub resize {
     my $size = shift;
     my $type = shift;
 
-    my ($image, $hint) = load( $file );
+    my ( $image, $hint ) = load($file);
 
     my ( $width, $height ) = $image->getBounds();
 
@@ -374,18 +400,18 @@ sub resize {
     my @arg = ( $image, 0, 0, 0, 0, $size, $size, $width, $height );
 
     if ( $width > $height ) {
-        $arg[ 2 ] = int( ( $size - $hnw ) / 2 + 0.5 );
+        $arg[2] = int( ( $size - $hnw ) / 2 + 0.5 );
         @arg[ 5, 6 ] = ( $size, $hnw );
     }
     elsif ( $width < $height ) {
-        $arg[ 1 ] = int( ( $size - $wnh ) / 2 + 0.5 );
+        $arg[1] = int( ( $size - $wnh ) / 2 + 0.5 );
         @arg[ 5, 6 ] = ( $wnh, $size );
     }
 
-    $image2->copyResized( @arg );
+    $image2->copyResized(@arg);
 
-    return $image2->png if( $type eq 'png' );
-    return $image2->gif if( $type eq 'gif' );
+    return $image2->png if ( $type eq 'png' );
+    return $image2->gif if ( $type eq 'gif' );
     return $image2->jpeg;
 }
 
@@ -407,52 +433,59 @@ sub load {
     my $image;
     die "GD library is too old for ThumbnailPlugin" if ( $GD::VERSION < 1.30 );
 
-    $image = GD::Image->new( $file );
+    $image = GD::Image->new($file);
 
     $Image::MetaData::JPEG::show_warnings = undef;
 
-    my $jpg = new Image::MetaData::JPEG(\$file, qr/APP(0|1)/, 'FASTREADONLY');
+    my $jpg = new Image::MetaData::JPEG( \$file, qr/APP(0|1)/, 'FASTREADONLY' );
 
-    return ($image, 0) unless $jpg;
+    return ( $image, 0 ) unless $jpg;
 
     my $snum = $jpg->retrieve_app1_Exif_segment(-1);
-    for( my $i = 0; $i < $snum; $i++) {
-   
-	my $seg = $jpg->retrieve_app1_Exif_segment($i);
-	my $imgdat = $seg->get_Exif_data('IMAGE_DATA', 'TEXTUAL');
-  
-	my $o = $imgdat->{'Orientation'};
-	next unless $o;
+    for ( my $i = 0 ; $i < $snum ; $i++ ) {
 
-	my $orient = @$o[0];
-	if( $orient == 1 ) { # Top, Left-Hand
-	    # Normal orientation
-	    return ($image, 0);
-	} elsif( $orient == 2 ) { # Top, Right-Hand
-	    $image->flipHorizontal();
-	    return ($image, 1);
-	} elsif( $orient == 3 ) { # Bottom, Right-Hand
-	    $image->rotate180();
-	    return ($image, 1);
-	} elsif( $orient == 4 ) { # Bottom, Left-Hand
-	    $image->flipVertical();
-	    return ($image, 1);
-	} elsif( $orient == 5 ) { # Left-Hand, Top
-	    $image->flipVertical();
-	    return ($image->copyRotate90(), 1);
-	} elsif( $orient == 6 ) { # Right-Hand, Top
-	    return ($image->copyRotate90(), 1);
-	} elsif( $orient == 7 ) { # Right-Hand, Bottom
-	    $image->flipHorizontal();
-	    return ($image->copyRotate90(), 1);
-	} elsif( $orient == 8 ) { # Left-Hand, Bottom
-	    return ($image->copyRotate270(), 1);
-	}
+        my $seg = $jpg->retrieve_app1_Exif_segment($i);
+        my $imgdat = $seg->get_Exif_data( 'IMAGE_DATA', 'TEXTUAL' );
+
+        my $o = $imgdat->{'Orientation'};
+        next unless $o;
+
+        my $orient = @$o[0];
+        if ( $orient == 1 ) {    # Top, Left-Hand
+                                 # Normal orientation
+            return ( $image, 0 );
+        }
+        elsif ( $orient == 2 ) {    # Top, Right-Hand
+            $image->flipHorizontal();
+            return ( $image, 1 );
+        }
+        elsif ( $orient == 3 ) {    # Bottom, Right-Hand
+            $image->rotate180();
+            return ( $image, 1 );
+        }
+        elsif ( $orient == 4 ) {    # Bottom, Left-Hand
+            $image->flipVertical();
+            return ( $image, 1 );
+        }
+        elsif ( $orient == 5 ) {    # Left-Hand, Top
+            $image->flipVertical();
+            return ( $image->copyRotate90(), 1 );
+        }
+        elsif ( $orient == 6 ) {    # Right-Hand, Top
+            return ( $image->copyRotate90(), 1 );
+        }
+        elsif ( $orient == 7 ) {    # Right-Hand, Bottom
+            $image->flipHorizontal();
+            return ( $image->copyRotate90(), 1 );
+        }
+        elsif ( $orient == 8 ) {    # Left-Hand, Bottom
+            return ( $image->copyRotate270(), 1 );
+        }
     }
 
     # Orientation unknown or not specified
 
-    return ($image, 0);
+    return ( $image, 0 );
 }
 
 =head2 size( $file )
@@ -464,7 +497,7 @@ Returns the width and height of C<$file>.
 sub size {
     my $file = shift;
 
-    my ($image, $hint) = load( $file );
+    my ( $image, $hint ) = load($file);
 
     return $image->getBounds();
 }
